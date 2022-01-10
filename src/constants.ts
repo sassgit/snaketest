@@ -8,7 +8,8 @@ export enum keys {
   C = 67,
   G = 71,
   J = 74,
-  K = 75
+  K = 75,
+  E = 69,
 }
 
 export const SIZE = 40;

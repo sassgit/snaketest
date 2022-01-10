@@ -28,6 +28,20 @@ export default class Game extends BaseGame {
     this.setEvents();
   }
 
+  getRandomLevel(): Level {
+    return this.levels[Math.floor(Math.random() * this.levels.length)];
+  }
+  mayIHaveGoldenApple(): boolean {
+    const chance: number = 5;
+    const pick = Math.random() * 100;
+    return pick < chance;
+  }
+  removeGrid(): void {
+    const grids = Array.from(document.querySelectorAll('.vertical-grid, .horizontal-grid'));
+    grids.forEach(e => Utils.removeNode(e));
+    this.gridVisible = false;
+  }
+  
   get highScore (): number {
     return parseInt(localStorage.getItem('high-score') || '0', 10) || 0;
   }
@@ -97,10 +111,14 @@ export default class Game extends BaseGame {
       this.keyHeld = 0;
       this.score = 0;
       Directions.flush();
-
+      
       this.showScore();
       this.moving = true;
       this.splashToggle(false);
+      if (this.currentLevel) {
+        this.currentLevel.remove();
+        this.currentLevel.render();
+      }
       requestAnimationFrame(this.frame.bind(this));
     }
   }
@@ -171,8 +189,11 @@ export default class Game extends BaseGame {
       if (this.noClip === false) {
         this.growth += 1; // Snake got bigger
       }
-
-      this.updateScore(type === 'food' ? 10 : 50); // Calculate the new score
+      
+      if (this.extraMode)
+        this.updateScore(type === 'food' ? 1 : -2); // Calculate the new score
+      else
+        this.updateScore(type === 'food' ? 10 : 50); // Calculate the new score
       this.showScore(); // Update the score
     }
   }
@@ -229,8 +250,9 @@ export default class Game extends BaseGame {
   getSpeed (): number {
     const initialSpeed = 200;
     const calculated = (initialSpeed - this.growth * 0.5) + this.debugSpeed + this.keyHeld;
-
-    return Utils.bound(calculated, FASTEST, SLOWEST);
+    const retVal = Utils.bound(calculated, FASTEST, SLOWEST);
+    this.debugSpeed = retVal - this.keyHeld - (initialSpeed - this.growth * 0.5);
+    return retVal;
   }
 
   updateScore (won: number): number {
@@ -239,6 +261,8 @@ export default class Game extends BaseGame {
     }
 
     this.score += won;
+    if (this.extraMode && this.score === 20)
+      this.score = 0;
 
     return this.score;
   }
@@ -252,9 +276,24 @@ export default class Game extends BaseGame {
 
   frame (): void {
     if (this.moving) {
-      setTimeout(() => {
-        requestAnimationFrame(this.frame.bind(this));
-      }, this.getSpeed()); // higher the score, faster the snake
+      const time = Date.now();
+      requestAnimationFrame(this.frame.bind(this));
+      const dtime = time - this.lastAccelFrameTime;
+      this.lastAccelFrameTime = time;
+      if (dtime) {
+        if (this.deccelerating) {
+          this.addspeed(-dtime / 1000 * 100)
+        } else if (this.accelerating) {
+          this.addspeed(dtime / 1000 * 50)
+        }
+      }
+      if (this.lastFrameTime + this.getSpeed() > time)
+        return;
+      else
+        this.lastFrameTime = Date.now();
+      // setTimeout(() => {
+      //   requestAnimationFrame(this.frame.bind(this));
+      // }, this.getSpeed()); // higher the score, faster the snake
     }
 
     if (this.paused) {
@@ -327,10 +366,35 @@ export default class Game extends BaseGame {
         || (lastDirection === keys.RIGHT && key === keys.LEFT)) {
       return false;
     }
+    if (this.extraMode &&
+     ((lastDirection === keys.UP && key === keys.RIGHT)
+        || (lastDirection === keys.RIGHT && key === keys.DOWN)
+        || (lastDirection === keys.DOWN && key === keys.LEFT)
+        || (lastDirection === keys.LEFT && key === keys.UP)) ) {
+      return false;
+    }
     return true;
   }
 
+  addspeed(value:number):void {
+    const waitTime = this.getSpeed();
+    const currentSpeed = 1000 / (waitTime + 17); // 60Hz -> 17ms...
+    const targetSpeed = Math.max(1000 / SLOWEST, currentSpeed + value);
+    const targetWaitTime = Math.max(0, 1000 / targetSpeed - 17);
+    this.debugSpeed += targetWaitTime - waitTime;
+  }
+
   setEvents (): void {
+    document.addEventListener('keyup', (e: KeyboardEvent) => {
+      switch (e.keyCode) {
+        case keys.J:
+          this.deccelerating = false;
+          break;
+        case keys.K:
+          this.accelerating = false;
+          break;
+      }
+    });
     document.addEventListener('keydown', (e: KeyboardEvent) => {
       switch (e.keyCode) {
         // Toggle Grid
@@ -348,11 +412,15 @@ export default class Game extends BaseGame {
           break;
         // Slowdown the snake
         case keys.J:
-          this.debugSpeed += 10;
+          this.deccelerating = true;
+          //this.addspeed(-10);
+          //this.debugSpeed += 10;
           break;
           // Speed up the snake
         case keys.K:
-          this.debugSpeed -= 10;
+          this.accelerating = true;
+          //this.addspeed(5);
+          //this.debugSpeed -= 10;
           break;
         // Pause or restart the game
         case keys.SPACE:
@@ -366,6 +434,9 @@ export default class Game extends BaseGame {
         // Restart the game
         case keys.RETURN:
           this.start();
+          break;
+        case keys.E:
+          this.extraMode = !this.extraMode;
           break;
         // Arrow keys or nothing
         default:
